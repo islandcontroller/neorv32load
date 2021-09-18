@@ -27,6 +27,7 @@ def process_args() -> argparse.Namespace:
   parser.add_argument('-t', dest='timeout', type=int, default=3, help='Line timeout in seconds (defaults to 3)')
   parser.add_argument('-v', action='store_true', help='Print verbose output')
   parser.add_argument('--keep', action='store_true', help='Keep port open after download and print RX')
+  parser.add_argument('--legacy', action='store_true', dest='legacy_loader', help='Target uses old bootloader (\"#\" as command character)')
   return parser.parse_args()
 
 if __name__ == "__main__":
@@ -35,19 +36,21 @@ if __name__ == "__main__":
 
   args: argparse.Namespace = process_args()
 
+  start_symbol = b'#' if args.legacy_loader else b'u'
+
   with serial.Serial(port=args.port, baudrate=args.baud, timeout=args.timeout) as s:
     # Immediately try to enter upload mode
-    print('Entering upload mode (sending \"#\")')
-    s.write(b'#')
+    print(f"Entering upload mode (sending \"{start_symbol.decode('ascii')}\")")
+    s.write(start_symbol)
 
     # Wait until device is ready
     line = s.readline()
     while line:
       if args.v:
         print(line)
-      if 'Bootloader' in str(line):
+      if (args.legacy_loader and 'Bootloader' in str(line)) or (not args.legacy_loader and 'CMD:' in str(line)):
         print('Re-sending upload command')
-        s.write(b'#')
+        s.write(start_symbol)
       if 'neorv32_exe.bin' in str(line):
         device_ready = True
         break
@@ -82,6 +85,12 @@ if __name__ == "__main__":
       exit()
     else:
       print('Upload successful')
+
+    # Start program execution after download
+    if (not args.legacy_loader):
+      print('Start program execution')
+      s.write(b'e')
+      s.flush()
 
     # Optional: print serial RX until timeout
     if args.keep:
